@@ -1,0 +1,143 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>GDasherHTML</title>
+    
+    <!-- This links to the Manifest file below -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192/00f2fe/ffffff?text=GD">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #0b0c10; font-family: 'Orbitron', sans-serif; color: #fff; touch-action: none; }
+        #gameCanvas { display: block; width: 100%; height: 100%; background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e); }
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(11, 12, 16, 0.95); z-index: 20; transition: opacity 0.3s ease; }
+        .hidden { opacity: 0 !important; pointer-events: none !important; }
+        h1 { font-size: clamp(2rem, 8vw, 4rem); text-transform: uppercase; font-weight: 900; background: linear-gradient(90deg, #00f2fe, #4facfe); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .btn { background: rgba(69, 243, 255, 0.1); color: #fff; border: 2px solid #45f3ff; padding: 15px 45px; font-size: 1.4rem; cursor: pointer; border-radius: 12px; margin: 10px; font-family: inherit; }
+        .btn:active { background: #45f3ff; color: #000; transform: scale(0.9); }
+        .grid-selector { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 25px; }
+        .card { border: 2px solid #45f3ff; border-radius: 12px; padding: 15px; background: rgba(0,0,0,0.6); cursor: pointer; }
+        .card.selected { border-color: #ff007c; box-shadow: 0 0 15px #ff007c; }
+        #touch-controls { position: absolute; bottom: 40px; width: 100%; padding: 0 50px; display: flex; justify-content: space-between; z-index: 10; pointer-events: none; }
+        .ctrl-group { display: flex; gap: 30px; pointer-events: auto; }
+        .t-btn { width: 85px; height: 85px; background: rgba(255,255,255,0.1); border: 3px solid rgba(255,255,255,0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; backdrop-filter: blur(8px); }
+        .t-btn.jump { width: 140px; height: 110px; border-radius: 25px; background: rgba(69, 243, 255, 0.25); font-weight: 900; border-color: #45f3ff; }
+        #score-hud { position: absolute; top: 30px; width: 100%; text-align: center; font-size: 2.2rem; font-weight: 900; text-shadow: 0 0 20px #45f3ff; pointer-events: none; display: none; z-index: 5; }
+    </style>
+</head>
+<body>
+    <div id="game-container" style="position:relative; width:100%; height:100%;">
+        <canvas id="gameCanvas"></canvas>
+        <div id="score-hud">ATTEMPT <span id="attempt-val">1</span></div>
+        <div id="touch-controls" class="hidden">
+            <div class="ctrl-group"><div class="t-btn" id="m-left">◀</div><div class="t-btn" id="m-right">▶</div></div>
+            <div class="ctrl-group"><div class="t-btn jump" id="m-jump">JUMP</div></div>
+        </div>
+        <div id="menu-screen" class="screen">
+            <h1>GDasher</h1>
+            <p style="color:#66fcf1; margin-bottom:30px;">Vercel App Version</p>
+            <button class="btn" onclick="initAudio(); showScreen('char-screen')">PLAY NOW</button>
+        </div>
+        <div id="char-screen" class="screen hidden" style="display:none;">
+            <h2>CHOOSE CUBE</h2>
+            <div class="grid-selector" id="char-grid"></div>
+            <button class="btn" onclick="startGame()">START</button>
+        </div>
+        <div id="crash-screen" class="screen hidden" style="display:none;">
+            <h1 style="color:#ff4d4d;">CRASHED</h1>
+            <button class="btn" onclick="restartGame()">RETRY</button>
+            <button class="btn" style="border-color:#555;" onclick="location.reload()">MENU</button>
+        </div>
+    </div>
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('score-hud');
+    const controls = document.getElementById('touch-controls');
+    let audioCtx, GAME_ACTIVE = false, attempts = 1, cameraX = 0;
+    const TILE = 45, GRAV = 0.55, JUMP = -17.5, SPEED = 7.5;
+    const chars = [{id:0, bg:'#FFEB3B', brd:'#000'}, {id:1, bg:'#E040FB', brd:'#FFF'}, {id:2, bg:'#00FF00', brd:'#000'}];
+    let selChar = chars[0], level = [], player = { x:100, y:0, w:35, h:35, vx:0, vy:0, rot:0, ground:false };
+    const inputs = { l:false, r:false, j:false };
+
+    function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => { s.classList.add('hidden'); setTimeout(() => { if(s.classList.contains('hidden')) s.style.display = 'none'; }, 300); });
+        if (id) { const next = document.getElementById(id); next.style.display = 'flex'; setTimeout(() => next.classList.remove('hidden'), 50); }
+    }
+    function setupTouch(id, key) {
+        const b = document.getElementById(id);
+        const set = (v) => (e) => { e.preventDefault(); inputs[key] = v; };
+        b.addEventListener('touchstart', set(true)); b.addEventListener('touchend', set(false));
+    }
+    setupTouch('m-left', 'l'); setupTouch('m-right', 'r'); setupTouch('m-jump', 'j');
+
+    function startGame() {
+        showScreen(null); controls.classList.remove('hidden'); hud.style.display = 'block';
+        level = [];
+        for(let i=0; i<100; i++) { 
+            level.push({t:'1', x:i*TILE, y:canvas.height-TILE-40, w:TILE, h:TILE});
+            if(i % 15 === 0 && i > 10) level.push({t:'1', x:i*TILE, y:canvas.height-TILE-180, w:TILE, h:TILE*4});
+        }
+        player.x = 100; player.y = 0; player.vx = 0; player.vy = 0; GAME_ACTIVE = true;
+        document.getElementById('attempt-val').innerText = attempts;
+        requestAnimationFrame(loop);
+    }
+    function restartGame() { attempts++; startGame(); }
+    function loop() {
+        if (!GAME_ACTIVE) return;
+        player.vy += GRAV;
+        player.vx = inputs.r ? SPEED : (inputs.l ? -SPEED : 0);
+        player.x += player.vx;
+        player.y += player.vy;
+        let onGround = false;
+        level.forEach(t => {
+            if(player.x < t.x + t.w && player.x + player.w > t.x && player.y < t.y + t.h && player.y + player.h > t.y) {
+                if(player.vy > 0 && player.y + player.h - player.vy <= t.y) { player.y = t.y - player.h; player.vy = 0; onGround = true; player.rot = 0; }
+                else if(player.x + player.w - player.vx <= t.x || player.x - player.vx >= t.x + t.w) { die(); }
+            }
+        });
+        player.ground = onGround;
+        if(inputs.j && player.ground) { player.vy = JUMP; player.ground = false; }
+        if(!player.ground) player.rot += 0.15;
+        if(player.y > canvas.height) die();
+        cameraX = player.x - canvas.width/3;
+        render();
+        requestAnimationFrame(loop);
+    }
+    function die() { GAME_ACTIVE = false; setTimeout(() => showScreen('crash-screen'), 300); }
+    function render() {
+        ctx.fillStyle = "#0f0c29"; ctx.fillRect(0,0,canvas.width,canvas.height);
+        level.forEach(t => {
+            let dx = t.x - cameraX;
+            ctx.fillStyle = "#302b63"; ctx.fillRect(dx, t.y, t.w, t.h);
+            ctx.strokeStyle = "#45f3ff"; ctx.strokeRect(dx, t.y, t.w, t.h);
+        });
+        ctx.save();
+        ctx.translate(player.x - cameraX + player.w/2, player.y + player.h/2);
+        ctx.rotate(player.rot);
+        ctx.fillStyle = selChar.bg; ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
+        ctx.strokeStyle = selChar.brd; ctx.lineWidth = 3; ctx.strokeRect(-player.w/2, -player.h/2, player.w, player.h);
+        ctx.restore();
+    }
+    window.onload = () => {
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        const cg = document.getElementById('char-grid');
+        chars.forEach(c => {
+            let d = document.createElement('div'); d.className = 'card'; d.innerHTML = `<div style="width:35px;height:35px;background:${c.bg};border:2px solid #fff"></div>`;
+            d.onclick = () => { selChar = c; document.querySelectorAll('.card').forEach(x=>x.classList.remove('selected')); d.classList.add('selected'); };
+            cg.appendChild(d);
+        });
+    };
+</script>
+</body>
+</html>
+
+```
